@@ -30,10 +30,11 @@ var options = {
         "gatherer": false,
         "botanist": false
 	},
-	"foodIndex": 0,
-	"foodLevel": 0,
-	"extra": false,
-	"disableLinks": false
+        "foodIndex": 0,
+        "foodLevel": 0,
+        "extra": false,
+        "disableLinks": false,
+        "autoMode": false
 };
 
 // Different fertilizers with their stats.

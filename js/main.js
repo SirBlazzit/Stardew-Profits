@@ -50,6 +50,19 @@ var imgIcons;
 var barsTooltips;
 var options;
 var MAX_INT = Number.MAX_SAFE_INTEGER || Number.MAX_VALUE;
+var autoRecommendation = null;
+var autoProduceActionSentences = [
+        "sell the harvest raw",
+        "process the harvest in Preserves Jars",
+        "ferment the harvest in Kegs",
+        "run the harvest through a Seed Maker",
+        "dry the harvest in a Dehydrator"
+];
+var autoFertilizerSourceLabels = ["Pierre", "Sandy"];
+
+function capitalizeFirstLetter(str) {
+        return str.charAt(0).toUpperCase() + str.slice(1);
+}
 
 /*
  * Formats a specified number, adding separators for thousands.
@@ -66,6 +79,10 @@ function formatNumber(num) {
         x1 = x1.replace(rgx, '$1' + ',' + '$2');
     }
     return x1 + x2;
+}
+
+function formatInteger(num) {
+        return formatNumber(num).replace(/\.00$/, '');
 }
 
 /*
@@ -544,7 +561,263 @@ function fertLoss(crop) {
  * @return Value per day.
  */
 function perDay(value) {
-	return value / options.days;
+        return value / options.days;
+}
+
+function updateProcessingRows() {
+        var tr_equipmentID = document.getElementById('tr_equipment');
+        var tr_check_sellRawID = document.getElementById('tr_check_sellRaw');
+        var tr_check_sellExcessID = document.getElementById('tr_check_sellExcess');
+        var tr_check_byHarvestID = document.getElementById('tr_check_byHarvest');
+        var tr_select_agingID = document.getElementById('tr_select_aging');
+
+        if (!tr_equipmentID || !tr_check_sellRawID || !tr_check_sellExcessID || !tr_check_byHarvestID || !tr_select_agingID) {
+                return;
+        }
+
+        if (options.produce == 0 || options.produce == 3) {
+                tr_equipmentID.classList.add('hidden');
+                tr_check_sellRawID.classList.add('hidden');
+                tr_check_sellExcessID.classList.add('hidden');
+                tr_check_byHarvestID.classList.add('hidden');
+                tr_select_agingID.classList.add('hidden');
+        }
+        else if (options.produce == 1 || options.produce == 2) {
+                tr_equipmentID.classList.remove('hidden');
+                tr_check_sellRawID.classList.remove('hidden');
+                tr_check_sellExcessID.classList.remove('hidden');
+                tr_check_byHarvestID.classList.add('hidden');
+                if (options.produce == 2) {
+                        tr_select_agingID.classList.remove('hidden');
+                }
+                else {
+                        tr_select_agingID.classList.add('hidden');
+                }
+        }
+        else {
+                tr_equipmentID.classList.remove('hidden');
+                tr_check_sellRawID.classList.remove('hidden');
+                tr_check_sellExcessID.classList.remove('hidden');
+                tr_check_byHarvestID.classList.remove('hidden');
+                tr_select_agingID.classList.add('hidden');
+        }
+}
+
+function updateProcessingFieldState() {
+        var equipmentInput = document.getElementById('equipment');
+        var agingSelect = document.getElementById('select_aging');
+
+        if (!equipmentInput || !agingSelect) {
+                return;
+        }
+
+        if (options.produce == 0 || options.produce == 3) {
+                equipmentInput.disabled = true;
+                equipmentInput.style.cursor = "default";
+        }
+        else {
+                equipmentInput.disabled = false;
+                equipmentInput.style.cursor = "text";
+        }
+
+        if (options.produce == 2) {
+                agingSelect.disabled = false;
+                agingSelect.style.cursor = "pointer";
+        }
+        else {
+                agingSelect.disabled = true;
+                agingSelect.style.cursor = "default";
+                agingSelect.value = 0;
+        }
+}
+
+function applyAutoMode() {
+        var baseline = JSON.parse(JSON.stringify(options));
+        var seasonIndex = baseline.season;
+        var seasonDuration = seasons[seasonIndex].duration;
+        var daysRemaining = baseline.days;
+
+        if (seasonIndex === 4) {
+                var greenhouseDays = parseInt(document.getElementById('number_days').value, 10);
+                if (isNaN(greenhouseDays) || greenhouseDays < 1) {
+                        greenhouseDays = baseline.days;
+                }
+                daysRemaining = Math.max(1, parseInt(greenhouseDays, 10));
+        }
+        else {
+                var currentDayInput = parseInt(document.getElementById('current_day').value, 10);
+                if (isNaN(currentDayInput) || currentDayInput < 1) {
+                        currentDayInput = 1;
+                }
+                currentDayInput = Math.min(Math.max(currentDayInput, 1), seasonDuration);
+                daysRemaining = seasonDuration - currentDayInput + 1;
+        }
+
+        daysRemaining = Math.max(1, Math.floor(daysRemaining));
+        baseline.days = daysRemaining;
+        if (seasonIndex !== 4) {
+                baseline.crossSeason = false;
+        }
+
+        var best = { profit: -Infinity };
+        var produceOptions = [0, 1, 2, 3, 4];
+        var fertilizerOptions = [0, 1, 2, 3, 4, 5, 6];
+
+        for (var i = 0; i < produceOptions.length; i++) {
+                var produce = produceOptions[i];
+                for (var j = 0; j < fertilizerOptions.length; j++) {
+                        var fertilizer = fertilizerOptions[j];
+                        var fertilizerSources = fertilizer === 4 ? [0, 1] : [0];
+                        for (var s = 0; s < fertilizerSources.length; s++) {
+                                var candidate = JSON.parse(JSON.stringify(baseline));
+                                candidate.autoMode = true;
+                                candidate.produce = produce;
+                                candidate.average = 0;
+                                candidate.fertilizer = fertilizer;
+                                candidate.fertilizerSource = fertilizerSources[s];
+                                candidate.days = daysRemaining;
+                                candidate.planted = 1;
+                                candidate.maxSeedMoney = 0;
+                                candidate.equipment = 0;
+                                candidate.aging = 0;
+                                candidate.sellRaw = false;
+                                candidate.sellExcess = true;
+                                candidate.byHarvest = false;
+                                candidate.buySeed = true;
+                                candidate.replant = false;
+                                candidate.nextyear = false;
+                                candidate.buyFert = false;
+                                candidate.seeds = { pierre: true, joja: true, special: true };
+                                candidate.foodIndex = 0;
+                                candidate.foodLevel = 0;
+
+                                var fertInfo = fertilizers[fertilizer];
+                                var fertilizerCost = fertInfo.cost || 0;
+                                var alternateCost = fertInfo.alternate_cost || 0;
+                                if (fertilizerCost > 0 || alternateCost > 0) {
+                                        candidate.buyFert = true;
+                                        if (fertilizer !== 4) {
+                                                candidate.fertilizerSource = 0;
+                                        }
+                                }
+                                else {
+                                        candidate.fertilizerSource = 0;
+                                }
+
+                                Object.assign(options, candidate);
+                                fetchCrops();
+                                valueCrops();
+                                sortCrops();
+
+                                if (!cropList.length) {
+                                        continue;
+                                }
+
+                                var topCrop = cropList[0];
+                                var totalProfit = topCrop.profit;
+
+                                if (totalProfit > best.profit) {
+                                        best.profit = totalProfit;
+                                        best.perDay = totalProfit / daysRemaining;
+                                        best.config = JSON.parse(JSON.stringify(options));
+                                        best.crop = JSON.parse(JSON.stringify(topCrop));
+                                }
+                        }
+                }
+        }
+
+        if (best.config) {
+                Object.assign(options, best.config);
+                options.days = daysRemaining;
+                options.autoMode = true;
+                autoRecommendation = {
+                        crop: best.crop,
+                        totalProfit: best.profit,
+                        perDay: best.perDay,
+                        produce: options.produce,
+                        fertilizer: options.fertilizer,
+                        fertilizerSource: options.fertilizerSource,
+                        days: daysRemaining
+                };
+        }
+        else {
+                Object.assign(options, baseline);
+                options.autoMode = true;
+                options.produce = 0;
+                options.fertilizer = 0;
+                options.fertilizerSource = 0;
+                options.buySeed = true;
+                options.buyFert = false;
+                autoRecommendation = null;
+        }
+}
+
+function updateAutoSummaryDisplay() {
+        var container = document.getElementById('auto_summary_container');
+        if (!container) {
+                return;
+        }
+
+        if (!options.autoMode) {
+                container.classList.add('hidden');
+                container.innerHTML = '<h3>Auto Strategy</h3><p class="auto-summary-text">Enable Auto Mode and set your day to see the recommended crop and processing strategy.</p>';
+                return;
+        }
+
+        container.classList.remove('hidden');
+
+        if (!autoRecommendation || !autoRecommendation.crop) {
+                container.innerHTML = '<h3>Auto Strategy</h3><p class="auto-summary-text">No crops can be harvested in the remaining time. Try adjusting the day or season.</p>';
+                return;
+        }
+
+        var seasonName = seasons[options.season].name;
+        var actionSentence = autoProduceActionSentences[autoRecommendation.produce] || autoProduceActionSentences[0];
+        var profitText = formatNumber(autoRecommendation.totalProfit);
+        var perDayText = formatNumber(autoRecommendation.perDay);
+        var durationText = autoRecommendation.days === 1 ? 'next day' : 'next ' + autoRecommendation.days + ' days';
+        var seasonDuration = seasons[options.season].duration;
+        var currentDayText = '';
+
+        if (options.season !== 4) {
+                var startDay = seasonDuration - options.days + 1;
+                currentDayText = ' on day ' + startDay;
+        }
+
+        var fertilizerName = fertilizers[autoRecommendation.fertilizer].name;
+        var fertilizerSentence;
+        if (autoRecommendation.fertilizer === 0) {
+                fertilizerSentence = 'Fertilizer: None required.';
+        }
+        else {
+                var sourceNote = '';
+                if (autoRecommendation.fertilizer === 4) {
+                        var sourceIndex = autoRecommendation.fertilizerSource || 0;
+                        sourceNote = ' (buy from ' + autoFertilizerSourceLabels[sourceIndex] + ')';
+                }
+                fertilizerSentence = 'Fertilizer: Use ' + fertilizerName + sourceNote + '.';
+        }
+
+        var harvests = autoRecommendation.crop.harvests || 0;
+        var harvestSentence = 'Harvests remaining: ' + harvests + '.';
+        var quantitySold = 0;
+        if (autoRecommendation.crop.profitData && autoRecommendation.crop.profitData.quantitySold) {
+                quantitySold = autoRecommendation.crop.profitData.quantitySold;
+        }
+        var quantitySentence = quantitySold > 0 ? 'Approximate items sold: ' + formatInteger(quantitySold) + '.' : '';
+
+        var assumptionsSentence = 'Seeds are purchased and fertilizer costs are included.';
+
+        var summaryHtml = '<h3>Auto Strategy</h3>';
+        summaryHtml += '<p class="auto-summary-text">Plant <strong>' + autoRecommendation.crop.name + '</strong>' + currentDayText + ' in ' + seasonName + ' and ' + actionSentence + ' to earn roughly <strong>' + profitText + 'g</strong> (' + perDayText + 'g per day) over the ' + durationText + '.</p>';
+        summaryHtml += '<ul class="auto-summary-details">';
+        summaryHtml += '<li>' + capitalizeFirstLetter(actionSentence) + '.</li>';
+        summaryHtml += '<li>' + fertilizerSentence + '</li>';
+        summaryHtml += '<li>' + harvestSentence + (quantitySentence ? ' ' + quantitySentence : '') + '</li>';
+        summaryHtml += '<li>' + assumptionsSentence + '</li>';
+        summaryHtml += '</ul>';
+
+        container.innerHTML = summaryHtml;
 }
 
 /*
@@ -1414,62 +1687,16 @@ function updateData() {
 
 	options.produce = parseInt(document.getElementById('select_produce').value);
 
-	var tr_equipmentID = document.getElementById('tr_equipment');
-	var tr_check_sellRawID = document.getElementById('tr_check_sellRaw');
-	var tr_check_sellExcessID = document.getElementById('tr_check_sellExcess');
-	var tr_check_byHarvestID = document.getElementById('tr_check_byHarvest');
-	var tr_select_agingID = document.getElementById('tr_select_aging');
-
-    if (options.produce == 0 || options.produce == 3) {
-		tr_equipmentID.classList.add('hidden');
-		tr_check_sellRawID.classList.add('hidden');
-		tr_check_sellExcessID.classList.add('hidden');
-		tr_check_byHarvestID.classList.add('hidden');
-		tr_select_agingID.classList.add('hidden');
-    }
-	else if (options.produce == 1 || options.produce == 2) {
-		tr_equipmentID.classList.remove('hidden');
-		tr_check_sellRawID.classList.remove('hidden');
-		tr_check_sellExcessID.classList.remove('hidden');
-		tr_check_byHarvestID.classList.add('hidden');
-		if(options.produce == 2){
-			tr_select_agingID.classList.remove('hidden');
-		} else {
-			tr_select_agingID.classList.add('hidden');
-		}
-	}
-    else {		
-		tr_equipmentID.classList.remove('hidden');
-		tr_check_sellRawID.classList.remove('hidden');
-		tr_check_sellExcessID.classList.remove('hidden');
-		tr_check_byHarvestID.classList.remove('hidden');
-		tr_select_agingID.classList.add('hidden');
-    }
+    updateProcessingRows();
     options.sellRaw 	= document.getElementById('check_sellRaw').checked;	
     options.sellExcess 	= document.getElementById('check_sellExcess').checked;
     options.byHarvest 	= document.getElementById('check_byHarvest').checked;
 
-    if (options.produce == 0 || options.produce == 3) {
-        document.getElementById('equipment').disabled = true;
-        document.getElementById('equipment').style.cursor = "default";
-    }
-    else {
-        document.getElementById('equipment').disabled = false;
-        document.getElementById('equipment').style.cursor = "text";
-    }
+    updateProcessingFieldState();
     if (document.getElementById('equipment').value < 0)
         document.getElementById('equipment').value = 0;
     options.equipment = parseInt(document.getElementById('equipment').value);
 
-    if (options.produce == 2) {
-        document.getElementById('select_aging').disabled = false;
-        document.getElementById('select_aging').style.cursor = "pointer";
-    }
-    else {
-        document.getElementById('select_aging').disabled = true;
-        document.getElementById('select_aging').style.cursor = "default";
-        document.getElementById('select_aging').value = 0;
-    }
     options.aging = parseInt(document.getElementById('select_aging').value);
 
 	if (document.getElementById('max_seed_money').value < 0)
@@ -1624,17 +1851,77 @@ function updateData() {
 	else
 		document.getElementById('speed_gro_source').disabled = true;
 
-	options.extra = document.getElementById('check_extra').checked;
-	options.disableLinks = document.getElementById('disable_links').checked;
+        options.extra = document.getElementById('check_extra').checked;
+        options.disableLinks = document.getElementById('disable_links').checked;
+
+    options.autoMode = document.getElementById('check_autoMode').checked;
+
+    if (options.autoMode) {
+        applyAutoMode();
+
+        document.getElementById('select_produce').value = options.produce;
+        document.getElementById('select_profit_display').value = options.average;
+        document.getElementById('check_sellRaw').checked = options.sellRaw;
+        document.getElementById('check_sellExcess').checked = options.sellExcess;
+        document.getElementById('check_byHarvest').checked = options.byHarvest;
+        document.getElementById('number_planted').value = options.planted;
+        document.getElementById('max_seed_money').value = options.maxSeedMoney;
+        document.getElementById('check_seedsPierre').checked = options.seeds.pierre;
+        document.getElementById('check_seedsJoja').checked = options.seeds.joja;
+        document.getElementById('check_seedsSpecial').checked = options.seeds.special;
+        document.getElementById('check_buySeed').checked = options.buySeed;
+        document.getElementById('check_replant').checked = options.replant;
+        document.getElementById('check_nextyear').checked = options.nextyear;
+        document.getElementById('check_nextyear').disabled = true;
+        document.getElementById('check_nextyear').style.cursor = "default";
+        document.getElementById('select_fertilizer').value = options.fertilizer;
+        document.getElementById('check_buyFert').checked = options.buyFert;
+        document.getElementById('speed_gro_source').value = options.fertilizerSource;
+        if (options.buyFert && options.fertilizer == 4)
+            document.getElementById('speed_gro_source').disabled = false;
+        else
+            document.getElementById('speed_gro_source').disabled = true;
+        document.getElementById('select_food').value = options.foodIndex;
+        document.getElementById('equipment').value = options.equipment;
+        document.getElementById('select_aging').value = options.aging;
+        document.getElementById('cross_season').checked = options.crossSeason;
+        document.getElementById('cross_season').disabled = true;
+        document.getElementById('cross_season').style.cursor = "default";
+        updateProcessingRows();
+        updateProcessingFieldState();
+        document.getElementById('check_autoMode').checked = true;
+    }
+    else {
+        autoRecommendation = null;
+        document.getElementById('check_autoMode').checked = false;
+    }
 
     updateSeasonNames();
 
-	// Persist the options object into the URL hash.
-	window.location.hash = encodeURIComponent(serialize(options));
+        // Persist the options object into the URL hash.
+        window.location.hash = encodeURIComponent(serialize(options));
 
-	fetchCrops();
-	valueCrops();
-	sortCrops();
+        fetchCrops();
+        valueCrops();
+        sortCrops();
+
+    if (options.autoMode) {
+        if (cropList.length > 0) {
+            autoRecommendation = autoRecommendation || {};
+            autoRecommendation.crop = JSON.parse(JSON.stringify(cropList[0]));
+            autoRecommendation.totalProfit = cropList[0].profit;
+            autoRecommendation.perDay = cropList[0].profit / options.days;
+            autoRecommendation.produce = options.produce;
+            autoRecommendation.fertilizer = options.fertilizer;
+            autoRecommendation.fertilizerSource = options.fertilizerSource;
+            autoRecommendation.days = options.days;
+        }
+        else {
+            autoRecommendation = null;
+        }
+    }
+
+    updateAutoSummaryDisplay();
 }
 
 /*
@@ -1778,8 +2065,11 @@ function optionsLoad() {
 	options.extra = validBoolean(options.extra);
 	document.getElementById('check_extra').checked = options.extra;
 
-	options.disableLinks = validBoolean(options.disableLinks);
-	document.getElementById('disable_links').checked = options.disableLinks;
+        options.disableLinks = validBoolean(options.disableLinks);
+        document.getElementById('disable_links').checked = options.disableLinks;
+
+    options.autoMode = validBoolean(options.autoMode);
+    document.getElementById('check_autoMode').checked = options.autoMode;
 
     updateSeasonNames();
 }
