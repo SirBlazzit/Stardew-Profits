@@ -167,17 +167,33 @@ select::-ms-expand {
 
 select:disabled {
     background: url("../img/drop_dis.png") no-repeat #111111 right;
-	color: #888888;
+        color: #888888;
 }
 
-input[type=checkbox] { 
+input[type=checkbox] {
     cursor: pointer;
 }
 
+.auto-summary {
+    background-color: #181818;
+    border-radius: 4px;
+    padding: 8px;
+    line-height: 1.4em;
+}
+
+.auto-summary strong {
+    color: #ffdf6b;
+}
+
+.auto-summary em {
+    color: #a8d5ff;
+    font-style: normal;
+}
+
 .tooltipTitle {
-	font: 1em sans-serif;
-	color: #eeeeee;
-	margin: 0px;
+        font: 1em sans-serif;
+        color: #eeeeee;
+        margin: 0px;
 }
 
 .tooltipTitleExtra {
