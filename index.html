@@ -23,18 +23,23 @@
 		<div class="options">
 		<table cellspacing="2" style="height: 0;">
 
-			<tr>
-				<td>Season:</td>
-				<td>
-					<select id="select_season" onChange="rebuild()">
-						<option value="0" id="season_0" selected="true">Spring</option>
-						<option value="1" id="season_1">Summer</option>
-						<option value="2" id="season_2">Fall</option>
-						<option value="3" id="season_3">Winter</option>
-						<option value="4" id="season_4">Greenhouse</option>
-					</select>
-				</td>
-			</tr>
+                        <tr>
+                                <td>Season:</td>
+                                <td>
+                                        <select id="select_season" onChange="rebuild()">
+                                                <option value="0" id="season_0" selected="true">Spring</option>
+                                                <option value="1" id="season_1">Summer</option>
+                                                <option value="2" id="season_2">Fall</option>
+                                                <option value="3" id="season_3">Winter</option>
+                                                <option value="4" id="season_4">Greenhouse</option>
+                                        </select>
+                                </td>
+                        </tr>
+
+                        <tr>
+                                <td>Auto Mode:</td>
+                                <td><input type="checkbox" id="check_autoMode" onChange="refresh()" /> <label for="check_autoMode">Enable Auto Mode</label></td>
+                        </tr>
 
             <tr id="cross_season_row">
                 <td>Cross-Season:</td>
@@ -261,8 +266,12 @@
 				<td colspan="3" id="tdhelp"><div id="divhelp"><a href="help.html">Help</a><a href="changes.html">Changes</a><a href="#" id="reset">Reset</a></div></td>
 			</tr>
 
-		</table>
-		</div>
+                </table>
+                <div id="auto_summary_container" class="auto-summary hidden">
+                        <h3>Auto Strategy</h3>
+                        <p class="auto-summary-text">Enable Auto Mode and set your day to see the recommended crop and processing strategy.</p>
+                </div>
+                </div>
 
 		<div class="footer">
 			<p><a href="http://stardewvalley.net/" target="_blank">Stardew Valley v1.6.7</a> &copy; <a href="https://twitter.com/ConcernedApe" target="_blank">ConcernedApe</a> | Website designed by <a href="https://twitter.com/thorinair_music" target="_blank">Thorinair</a> | <a href="https://github.com/Thorinair/Stardew-Profits" target="_blank">Stardew Profits v1.6.11</a></p>

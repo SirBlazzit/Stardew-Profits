@@ -39,19 +39,20 @@ body {
 }
 
 .options {
-	margin: auto;
-	margin-top: 8px;
-	margin-bottom: 8px;
-	font: 0.875em sans-serif;
-	color: #eeeeee;
-	background-color: #333333;
-	border-radius: 8px;
-	padding: 8px;
-	width: 900px;
+        margin: auto;
+        margin-top: 8px;
+        margin-bottom: 8px;
+        font: 0.875em sans-serif;
+        color: #eeeeee;
+        background-color: #333333;
+        border-radius: 8px;
+        padding: 8px;
+        width: 900px;
     -webkit-filter: drop-shadow(0px 2px 8px rgba(0,0,0,0.75));
     -ms-filter: "progid:DXImageTransform.Microsoft.Dropshadow(OffX=0, OffY=2, Color='#000')";
     filter: "progid:DXImageTransform.Microsoft.Dropshadow(OffX=0, OffY=2, Color='#000')";
-	display: flex;
+        display: flex;
+        flex-wrap: wrap;
 }
 
 .options table {
@@ -82,6 +83,35 @@ body {
 .options table tr td .subt td {
     background-color: #181818;
     margin: 0px;
+}
+
+.auto-summary {
+        background-color: #222222;
+        border-radius: 6px;
+        padding: 12px;
+        margin: 4px;
+        flex-basis: 100%;
+        box-sizing: border-box;
+}
+
+.auto-summary h3 {
+        margin: 0 0 8px 0;
+        font-size: 1em;
+}
+
+.auto-summary-text {
+        margin: 0 0 8px 0;
+        line-height: 1.4;
+}
+
+.auto-summary-details {
+        margin: 0;
+        padding-left: 20px;
+        line-height: 1.4;
+}
+
+.auto-summary-details li {
+        margin-bottom: 4px;
 }
 
 .hidden {
