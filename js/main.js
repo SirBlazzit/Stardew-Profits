@@ -49,6 +49,7 @@ var barsFert;
 var imgIcons;
 var barsTooltips;
 var options;
+var autoModeEnabled = false;
 var MAX_INT = Number.MAX_SAFE_INTEGER || Number.MAX_VALUE;
 
 /*
@@ -66,6 +67,299 @@ function formatNumber(num) {
         x1 = x1.replace(rgx, '$1' + ',' + '$2');
     }
     return x1 + x2;
+}
+
+function formatWholeNumber(num) {
+    var rounded = Math.round(num);
+    var parts = rounded.toString().split('.');
+    parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    return parts.join('.');
+}
+
+function toggleAutoMode() {
+    var autoToggle = document.getElementById('auto_mode');
+    var summaryRow = document.getElementById('auto_summary_row');
+    var summaryBox = document.getElementById('auto_summary');
+    autoModeEnabled = autoToggle && autoToggle.checked;
+
+    if (!summaryRow || !summaryBox) {
+        return;
+    }
+
+    if (autoModeEnabled) {
+        summaryRow.classList.remove('hidden');
+        summaryBox.textContent = 'Calculating best plan...';
+        runAutoMode();
+    }
+    else {
+        summaryRow.classList.add('hidden');
+        summaryBox.textContent = 'Enable Auto mode to receive recommendations.';
+    }
+}
+
+function runAutoMode() {
+    if (!autoModeEnabled) {
+        return;
+    }
+
+    var summaryBox = document.getElementById('auto_summary');
+    if (!summaryBox) {
+        return;
+    }
+
+    var recommendation = computeAutoRecommendation();
+
+    if (!recommendation) {
+        summaryBox.innerHTML = '<strong>No crops will mature in time.</strong><br />Save your resources for the next planting opportunity.';
+        return;
+    }
+
+    summaryBox.innerHTML = formatAutoRecommendation(recommendation);
+}
+
+function prepareAutoOptions(base) {
+    var clone = JSON.parse(JSON.stringify(base));
+
+    clone.buySeed = true;
+    clone.maxSeedMoney = 0;
+    clone.average = 0;
+    clone.sellRaw = true;
+    clone.sellExcess = true;
+    clone.buyFert = false;
+    clone.byHarvest = false;
+    clone.replant = false;
+    clone.nextyear = false;
+    clone.equipment = 0;
+    clone.aging = parseInt(clone.aging, 10) || 0;
+    clone.level = parseInt(clone.level, 10) || 0;
+    clone.foragingLevel = parseInt(clone.foragingLevel, 10) || 0;
+    clone.foodLevel = parseInt(clone.foodLevel, 10) || 0;
+    clone.foodIndex = parseInt(clone.foodIndex, 10) || 0;
+    clone.planted = parseInt(clone.planted, 10) || 1;
+    clone.days = parseInt(clone.days, 10) || 0;
+    clone.crossSeason = !!clone.crossSeason;
+
+    if (!clone.skills) {
+        clone.skills = {
+            till: false,
+            agri: false,
+            arti: false,
+            gatherer: false,
+            botanist: false
+        };
+    }
+    else {
+        clone.skills.till = !!clone.skills.till;
+        clone.skills.agri = !!clone.skills.agri;
+        clone.skills.arti = !!clone.skills.arti;
+        clone.skills.gatherer = !!clone.skills.gatherer;
+        clone.skills.botanist = !!clone.skills.botanist;
+    }
+
+    if (!clone.seeds) {
+        clone.seeds = {
+            pierre: true,
+            joja: true,
+            special: true
+        };
+    }
+    else {
+        clone.seeds.pierre = clone.seeds.pierre !== false;
+        clone.seeds.joja = clone.seeds.joja !== false;
+        clone.seeds.special = clone.seeds.special !== false;
+    }
+
+    return clone;
+}
+
+function computeAutoRecommendation() {
+    if (!options) {
+        return null;
+    }
+
+    var savedOptions = JSON.parse(JSON.stringify(options));
+    var best = null;
+    var fallback = null;
+    var produceOptions = [0, 1, 2, 3, 4];
+    var fertilizerOptions = [0, 1, 2, 3, 4, 5, 6];
+
+    for (var p = 0; p < produceOptions.length; p++) {
+        var produce = produceOptions[p];
+        var replantChoices = produce === 3 ? [false, true] : [false];
+        var byHarvestChoices = produce === 4 ? [false, true] : [false];
+
+        for (var f = 0; f < fertilizerOptions.length; f++) {
+            var fertilizer = fertilizerOptions[f];
+            var fertilizerSources = fertilizer === 4 ? [0, 1] : [0];
+
+            for (var s = 0; s < fertilizerSources.length; s++) {
+                var fertilizerSource = fertilizerSources[s];
+
+                for (var r = 0; r < replantChoices.length; r++) {
+                    var replant = replantChoices[r];
+
+                    for (var b = 0; b < byHarvestChoices.length; b++) {
+                        var byHarvest = byHarvestChoices[b];
+
+                        var scenarioOptions = prepareAutoOptions(savedOptions);
+                        scenarioOptions.produce = produce;
+                        scenarioOptions.replant = replant;
+                        scenarioOptions.byHarvest = byHarvest;
+                        scenarioOptions.fertilizer = fertilizer;
+                        scenarioOptions.fertilizerSource = fertilizerSource;
+
+                        var fertilizerCost = fertilizers[fertilizer].cost || 0;
+                        if (fertilizer === 4 && fertilizerSource === 1 && typeof fertilizers[fertilizer].alternate_cost === 'number') {
+                            fertilizerCost = fertilizers[fertilizer].alternate_cost;
+                        }
+                        scenarioOptions.buyFert = fertilizerCost > 0;
+
+                        options = scenarioOptions;
+                        fetchCrops();
+                        valueCrops();
+                        sortCrops();
+
+                        if (!cropList || cropList.length === 0) {
+                            continue;
+                        }
+
+                        var candidateCrop = null;
+                        for (var i = 0; i < cropList.length; i++) {
+                            if (cropList[i].harvests > 0) {
+                                candidateCrop = cropList[i];
+                                break;
+                            }
+                        }
+
+                        if (!candidateCrop) {
+                            candidateCrop = cropList[0];
+                        }
+
+                        if (!candidateCrop) {
+                            continue;
+                        }
+
+                        var profit = Number(candidateCrop.profit);
+                        var averageProfit = Number(candidateCrop.averageProfit);
+
+                        var record = {
+                            profit: profit,
+                            averageProfit: averageProfit,
+                            crop: JSON.parse(JSON.stringify(candidateCrop)),
+                            config: {
+                                produce: produce,
+                                fertilizer: fertilizer,
+                                fertilizerSource: fertilizerSource,
+                                replant: replant,
+                                byHarvest: byHarvest,
+                                buyFert: scenarioOptions.buyFert
+                            }
+                        };
+
+                        if (candidateCrop.harvests > 0 && candidateCrop.profitData.quantitySold > 0) {
+                            if (!best || profit > best.profit || (profit === best.profit && averageProfit > best.averageProfit)) {
+                                best = record;
+                            }
+                        }
+
+                        if (!fallback || profit > fallback.profit || (profit === fallback.profit && averageProfit > fallback.averageProfit)) {
+                            fallback = record;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    options = savedOptions;
+    fetchCrops();
+    valueCrops();
+    sortCrops();
+
+    return best || fallback;
+}
+
+function describeProduceStrategy(config, crop) {
+    switch (config.produce) {
+        case 1: {
+            var jarType = crop.produce.jarType ? crop.produce.jarType.toLowerCase() : 'artisan goods';
+            return {
+                action: 'process the harvest in Preserves Jars',
+                noun: 'jars of ' + jarType
+            };
+        }
+        case 2: {
+            var kegType = crop.produce.kegType ? crop.produce.kegType.toLowerCase() : 'artisan goods';
+            return {
+                action: 'process the harvest in Kegs',
+                noun: 'kegs of ' + kegType
+            };
+        }
+        case 3:
+            return {
+                action: 'turn each harvest into seeds using the Seed Maker',
+                noun: 'packets of seeds'
+            };
+        case 4: {
+            var dehydratorType = crop.produce.dehydratorType ? crop.produce.dehydratorType.toLowerCase() : 'dried goods';
+            var noun = dehydratorType.indexOf('dried') === 0 ? dehydratorType : 'dried ' + dehydratorType;
+            var action = config.byHarvest ? 'dry each harvest immediately in a Dehydrator' : 'dry accumulated crops in a Dehydrator';
+            return {
+                action: action,
+                noun: noun
+            };
+        }
+        default:
+            return {
+                action: 'sell the harvest as raw crops',
+                noun: 'crops'
+            };
+    }
+}
+
+function formatAutoRecommendation(recommendation) {
+    var crop = recommendation.crop;
+    var config = recommendation.config;
+    var fertilizer = fertilizers[config.fertilizer];
+    var fertilizerText = 'without using fertilizer';
+
+    if (config.fertilizer !== 0) {
+        fertilizerText = 'with ' + fertilizer.name;
+        if (config.fertilizer === 4 && config.buyFert) {
+            fertilizerText += config.fertilizerSource === 1 ? ' purchased from Sandy' : ' purchased from Pierre';
+        }
+        else if (!config.buyFert) {
+            fertilizerText += ' (using existing stock)';
+        }
+    }
+
+    var strategy = describeProduceStrategy(config, crop);
+    var harvestWord = crop.harvests === 1 ? 'harvest' : 'harvests';
+    var quantitySold = crop.profitData && crop.profitData.quantitySold ? crop.profitData.quantitySold : 0;
+    var netExpenses = crop.profitData && crop.profitData.netExpenses ? Math.abs(crop.profitData.netExpenses) : 0;
+    var profit = recommendation.profit;
+    var averageProfit = recommendation.averageProfit;
+
+    if (crop.harvests === 0 || quantitySold === 0) {
+        var direction = profit >= 0 ? 'would still gain' : 'would lose';
+        return '<strong>No crops will mature in time.</strong><br />Even planting <strong>' + crop.name + '</strong> ' + fertilizerText + ' and choosing to ' + strategy.action + ' ' + direction + ' ' + formatNumber(Math.abs(profit)) + 'g overall. Save your resources for the next season.';
+    }
+
+    var outcomeLabel = profit >= 0 ? 'Estimated profit' : 'Expected loss';
+    var message = '<strong>Plant ' + crop.name + '</strong> ' + fertilizerText + ' and ' + strategy.action + '.';
+
+    if (config.replant) {
+        message += ' Reserve part of each harvest to keep the fields replanted.';
+    }
+
+    message += '<br />This yields ' + crop.harvests + ' ' + harvestWord + ', producing about ' + formatWholeNumber(quantitySold) + ' ' + strategy.noun + '.';
+    message += '<br />' + outcomeLabel + ': ' + formatNumber(Math.abs(profit)) + 'g total (' + formatNumber(Math.abs(averageProfit)) + 'g/day).';
+
+    if (netExpenses > 0) {
+        message += '<br /><em>Requires ' + formatNumber(netExpenses) + 'g in seeds and supplies.</em>';
+    }
+
+    return message;
 }
 
 /*
@@ -1650,9 +1944,12 @@ function initial() {
  * Called on every option change to animate the graph.
  */
 function refresh() {
-	updateData();
-	gTitle.selectAll("*").remove();
-	updateGraph();
+        updateData();
+        gTitle.selectAll("*").remove();
+        updateGraph();
+        if (autoModeEnabled) {
+                runAutoMode();
+        }
 }
 
 /*
@@ -1813,16 +2110,19 @@ function serialize(obj) {
  * Called when changing season/seeds, to redraw the graph.
  */
 function rebuild() {
-	gAxis.selectAll("*").remove();
-	gProfit.selectAll("*").remove();
-	gSeedLoss.selectAll("*").remove();
+        gAxis.selectAll("*").remove();
+        gProfit.selectAll("*").remove();
+        gSeedLoss.selectAll("*").remove();
 	gFertLoss.selectAll("*").remove();
 	gIcons.selectAll("*").remove();
 	gTooltips.selectAll("*").remove();
 	gTitle.selectAll("*").remove();
 
-	updateData();
-	renderGraph();
+        updateData();
+        renderGraph();
+        if (autoModeEnabled) {
+                runAutoMode();
+        }
 }
 
 document.addEventListener('DOMContentLoaded', initial);

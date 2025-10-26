@@ -41,10 +41,24 @@
                 <td><input type="checkbox" id="cross_season" onChange="refresh()" /></td>
             </tr>
 
-			<tr id="current_day_row">
-				<td>Current Day:</td>
-				<td><input type="number" id="current_day" value="1" onChange="refresh()"/></td>
-			</tr>
+            <tr id="current_day_row">
+                <td>Current Day:</td>
+                <td><input type="number" id="current_day" value="1" onChange="refresh()"/></td>
+            </tr>
+
+            <tr>
+                <td>Auto Mode:</td>
+                <td>
+                    <input type="checkbox" id="auto_mode" onChange="toggleAutoMode()" />
+                    <label for="auto_mode">Recommend best plan</label>
+                </td>
+            </tr>
+
+            <tr id="auto_summary_row" class="hidden">
+                <td colspan="2">
+                    <div id="auto_summary">Enable Auto mode to receive recommendations.</div>
+                </td>
+            </tr>
 
             <tr id="number_days_row">
                 <td>Number of Days:</td>

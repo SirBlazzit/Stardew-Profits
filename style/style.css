@@ -85,7 +85,24 @@ body {
 }
 
 .hidden {
-	display: none;
+    display: none;
+}
+
+#auto_summary {
+    background-color: #1c1c1c;
+    border: 1px solid #000000;
+    border-radius: 8px;
+    padding: 8px 12px;
+    color: #f0f0f0;
+    line-height: 1.4;
+}
+
+#auto_summary strong {
+    color: #ffd85e;
+}
+
+#auto_summary em {
+    color: #bbbbbb;
 }
 
 #tdhelp {
