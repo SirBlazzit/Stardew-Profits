@@ -50,6 +50,18 @@ var imgIcons;
 var barsTooltips;
 var options;
 var MAX_INT = Number.MAX_SAFE_INTEGER || Number.MAX_VALUE;
+var manualHash = null;
+var isApplyingAuto = false;
+var lastAutoRecommendation = null;
+var manualOptionsSnapshot = null;
+
+var produceStrategies = {
+    0: { title: "Sell Raw", action: "sell it raw" },
+    1: { title: "Preserves Jar", action: "process it in a Preserves Jar" },
+    2: { title: "Keg", action: "process it in a Keg" },
+    3: { title: "Seed Maker", action: "turn it into Seeds" },
+    4: { title: "Dehydrator", action: "dry it in a Dehydrator" }
+};
 
 /*
  * Formats a specified number, adding separators for thousands.
@@ -1409,10 +1421,12 @@ function updateSeasonNames() {
  */
 function updateData() {
 
+    options.autoMode = document.getElementById('auto_mode').checked;
+
     options.season = parseInt(document.getElementById('select_season').value);
     const isGreenhouse = options.season == 4;
 
-	options.produce = parseInt(document.getElementById('select_produce').value);
+        options.produce = parseInt(document.getElementById('select_produce').value);
 
 	var tr_equipmentID = document.getElementById('tr_equipment');
 	var tr_check_sellRawID = document.getElementById('tr_check_sellRaw');
@@ -1624,17 +1638,28 @@ function updateData() {
 	else
 		document.getElementById('speed_gro_source').disabled = true;
 
-	options.extra = document.getElementById('check_extra').checked;
-	options.disableLinks = document.getElementById('disable_links').checked;
+        options.extra = document.getElementById('check_extra').checked;
+        options.disableLinks = document.getElementById('disable_links').checked;
 
     updateSeasonNames();
 
-	// Persist the options object into the URL hash.
-	window.location.hash = encodeURIComponent(serialize(options));
+    if (options.autoMode && !isApplyingAuto) {
+        applyAutoMode();
+        return;
+    }
 
-	fetchCrops();
-	valueCrops();
-	sortCrops();
+        // Persist the options object into the URL hash.
+        window.location.hash = encodeURIComponent(serialize(options));
+
+        fetchCrops();
+        valueCrops();
+        sortCrops();
+
+    if (options.autoMode) {
+        updateAutoSummary(lastAutoRecommendation);
+    } else {
+        updateAutoSummary(null);
+    }
 }
 
 /*
@@ -1775,11 +1800,14 @@ function optionsLoad() {
 	options.foodIndex = validIntRange(0, 6, options.foodIndex);
 	document.getElementById('select_food').value = options.foodIndex;
 
-	options.extra = validBoolean(options.extra);
-	document.getElementById('check_extra').checked = options.extra;
+        options.extra = validBoolean(options.extra);
+        document.getElementById('check_extra').checked = options.extra;
 
-	options.disableLinks = validBoolean(options.disableLinks);
-	document.getElementById('disable_links').checked = options.disableLinks;
+        options.disableLinks = validBoolean(options.disableLinks);
+        document.getElementById('disable_links').checked = options.disableLinks;
+
+    options.autoMode = validBoolean(options.autoMode);
+    document.getElementById('auto_mode').checked = options.autoMode;
 
     updateSeasonNames();
 }
@@ -1800,13 +1828,203 @@ function deserialize(str) {
 
 function serialize(obj) {
 
-	return Object.keys(obj)
-		.reduce((acc, key) => {
-			return /^(?:true|false|\d+)$/i.test('' + obj[key])
-				? `${acc}-${key}_${obj[key]}`
-				: `${acc}-${key}_(${serialize(obj[key])})`;
-		}, '')
-		.slice(1);
+        return Object.keys(obj)
+                .reduce((acc, key) => {
+                        return /^(?:true|false|\d+)$/i.test('' + obj[key])
+                                ? `${acc}-${key}_${obj[key]}`
+                                : `${acc}-${key}_(${serialize(obj[key])})`;
+                }, '')
+                .slice(1);
+}
+
+function toggleAutoMode() {
+    var autoEnabled = document.getElementById('auto_mode').checked;
+    if (autoEnabled) {
+        if (manualHash === null) {
+            manualHash = window.location.hash;
+            manualOptionsSnapshot = JSON.parse(JSON.stringify(options));
+        }
+        lastAutoRecommendation = null;
+    } else {
+        if (manualHash !== null && manualHash !== '') {
+            window.location.hash = manualHash;
+            manualHash = null;
+            manualOptionsSnapshot = null;
+            optionsLoad();
+        } else if (manualOptionsSnapshot) {
+            syncDomWithOptions(manualOptionsSnapshot);
+            manualOptionsSnapshot = null;
+            manualHash = null;
+        } else {
+            manualHash = null;
+        }
+        lastAutoRecommendation = null;
+    }
+    refresh();
+}
+
+function syncDomWithOptions(autoOptions) {
+    var elementMap = [
+        { id: 'select_produce', type: 'value', value: autoOptions.produce },
+        { id: 'equipment', type: 'value', value: autoOptions.equipment },
+        { id: 'check_sellRaw', type: 'checked', value: autoOptions.sellRaw },
+        { id: 'check_sellExcess', type: 'checked', value: autoOptions.sellExcess },
+        { id: 'check_byHarvest', type: 'checked', value: autoOptions.byHarvest },
+        { id: 'select_aging', type: 'value', value: autoOptions.aging },
+        { id: 'max_seed_money', type: 'value', value: autoOptions.maxSeedMoney !== undefined ? autoOptions.maxSeedMoney : 0 },
+        { id: 'check_buySeed', type: 'checked', value: autoOptions.buySeed },
+        { id: 'check_replant', type: 'checked', value: autoOptions.replant },
+        { id: 'check_nextyear', type: 'checked', value: autoOptions.nextyear },
+        { id: 'select_fertilizer', type: 'value', value: autoOptions.fertilizer },
+        { id: 'check_buyFert', type: 'checked', value: autoOptions.buyFert },
+        { id: 'speed_gro_source', type: 'value', value: autoOptions.fertilizerSource }
+    ];
+
+    for (var i = 0; i < elementMap.length; i++) {
+        var config = elementMap[i];
+        var el = document.getElementById(config.id);
+        if (!el) continue;
+        if (config.type === 'value') {
+            el.value = config.value;
+        } else if (config.type === 'checked') {
+            el.checked = config.value;
+        }
+    }
+}
+
+function calculateBestScenario(baseOptions) {
+    var best = null;
+    var baseJson = JSON.stringify(baseOptions);
+
+    for (var produceKey in produceStrategies) {
+        if (!produceStrategies.hasOwnProperty(produceKey)) continue;
+        var produceValue = parseInt(produceKey, 10);
+
+        for (var fertilizerIndex = 0; fertilizerIndex < fertilizers.length; fertilizerIndex++) {
+            var scenario = JSON.parse(baseJson);
+            scenario.produce = produceValue;
+            scenario.buySeed = produceValue === 3 ? false : true;
+            scenario.sellRaw = true;
+            scenario.sellExcess = true;
+            scenario.byHarvest = false;
+            scenario.aging = 0;
+            scenario.equipment = 0;
+            scenario.replant = false;
+            scenario.nextyear = false;
+            scenario.buyFert = fertilizerIndex === 0 ? false : true;
+            scenario.fertilizer = fertilizerIndex;
+            scenario.autoMode = true;
+
+            options = scenario;
+            fetchCrops();
+            valueCrops();
+            sortCrops();
+
+            if (!cropList.length) {
+                continue;
+            }
+
+            var candidate = cropList[0];
+            if (candidate.profit <= 0) {
+                continue;
+            }
+
+            if (!best || candidate.profit > best.totalProfit) {
+                best = {
+                    options: JSON.parse(JSON.stringify(scenario)),
+                    crop: JSON.parse(JSON.stringify(candidate)),
+                    totalProfit: candidate.profit,
+                    produce: produceValue,
+                    fertilizerIndex: fertilizerIndex
+                };
+            }
+        }
+    }
+
+    if (best) {
+        best.fertilizerLabel = fertilizers[best.fertilizerIndex].name;
+    }
+
+    return best;
+}
+
+function applyAutoMode() {
+    var baseOptions = JSON.parse(JSON.stringify(options));
+    var recommendation = calculateBestScenario(baseOptions);
+
+    if (!recommendation) {
+        lastAutoRecommendation = {
+            message: 'Auto mode could not find a profitable crop for the selected timeframe.',
+            options: baseOptions
+        };
+        options = baseOptions;
+        window.location.hash = encodeURIComponent(serialize(options));
+        fetchCrops();
+        valueCrops();
+        sortCrops();
+        updateAutoSummary(lastAutoRecommendation);
+        return;
+    }
+
+    lastAutoRecommendation = recommendation;
+    isApplyingAuto = true;
+    try {
+        options = recommendation.options;
+        syncDomWithOptions(options);
+        updateData();
+    } finally {
+        isApplyingAuto = false;
+    }
+}
+
+function updateAutoSummary(recommendation) {
+    var summaryRow = document.getElementById('auto_summary_row');
+    var summary = document.getElementById('auto_summary');
+    if (!summaryRow || !summary) {
+        return;
+    }
+
+    if (!options.autoMode) {
+        summaryRow.classList.add('hidden');
+        summary.innerHTML = '';
+        return;
+    }
+
+    summaryRow.classList.remove('hidden');
+
+    if (!recommendation) {
+        summary.innerHTML = 'Auto mode is preparing a recommendation…';
+        return;
+    }
+
+    if (recommendation.message) {
+        summary.innerHTML = recommendation.message;
+        return;
+    }
+
+    var cropInfo = recommendation.crop;
+    var strategy = produceStrategies[recommendation.produce];
+    var totalProfit = formatNumber(recommendation.totalProfit);
+    var dailyProfitValue = cropInfo.averageProfit;
+    var daysRemaining = recommendation.options && recommendation.options.days !== undefined
+        ? recommendation.options.days
+        : options.days;
+    if (!isFinite(dailyProfitValue)) {
+        dailyProfitValue = 0;
+    }
+    var dailyProfit = formatNumber(dailyProfitValue);
+    var fertilizerText = recommendation.options && recommendation.options.fertilizer === 0
+        ? 'without fertilizer'
+        : `using ${recommendation.fertilizerLabel}`;
+    var dayLabel = daysRemaining === 1 ? 'day' : 'days';
+
+    var roiText = '';
+    if (cropInfo.totalReturnOnInvestment && !isNaN(cropInfo.totalReturnOnInvestment)) {
+        roiText = ` ROI: ${cropInfo.totalReturnOnInvestment.toFixed(2)}%.`;
+    }
+
+    summary.innerHTML = `<strong>Auto Recommendation:</strong> Plant <em>${cropInfo.name}</em> and ${strategy.action} (${strategy.title}). ` +
+        `Expect about <strong>${totalProfit}g</strong> total (${dailyProfit}g/day) over the remaining ${daysRemaining} ${dayLabel} ${fertilizerText}.` + roiText;
 }
 
 /*

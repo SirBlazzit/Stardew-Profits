@@ -1,6 +1,7 @@
 // Options used to draw the graph.
 var options = {
-	"produce": 0,
+        "autoMode": false,
+        "produce": 0,
     "equipment": 0,
     "sellRaw": false,
     "sellExcess": false,
